@@ -1,0 +1,58 @@
+name: ml-model-ci/cd 
+
+on: [push]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-python@v2
+    - name: Install requirements
+      run: pip install --quiet --requirement requirements.txt
+    - name: Lint code
+      run: |
+        flake8 --ignore=E501,E231 *.py
+        pylint --disable=C0103 --disable=C0301 --disable=C0326 --disable=missing-docstring --disable=E0611 *.py
+
+  train_test:
+    needs: [lint]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+      - uses: iterative/setup-cml@v1  
+      
+      - name: Install requirements for training
+        run: pip install --quiet --requirement requirements.txt
+        
+      - name: Train model
+        run: 
+          python train.py
+  
+      - name: Test model
+        run: 
+          python test.py
+      
+      - name: Artifacts
+        env:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p my-artifacts
+          cat metrics.json > my-artifacts/metrics.json 
+          cp -R model-artifact my-artifacts/model
+      - uses: actions/upload-artifact@v2
+        with:
+            name: my-artifact
+            path: | 
+             my-artifacts/metrics.json
+             my-artifacts/model
+            
+      - name: Write report
+        env:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+            echo "## Model metrics" > report.md
+            cat metrics.json >> report.md
+            cml-publish training-validation.png --md >> report.md
+            cml-send-comment report.md
